@@ -17,7 +17,8 @@ namespace DiscordMinikBOT
 Bot prefix: **" + Program.prefix + @"**
 
 Bot author: 
-    - <@308705467209875456>";
+    - <@308705467209875456>
+    - helper: <@285107922910838784>";
 
         public static string aliasesMessage = @"
 whois {mention} = whoami {mention}
