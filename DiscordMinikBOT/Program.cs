@@ -9,6 +9,8 @@ using System.Threading.Tasks;
 
 using System.Collections.Generic;
 
+using PLplot;
+
 namespace DiscordMinikBOT
 {
     public enum Ranks
@@ -47,9 +49,349 @@ namespace DiscordMinikBOT
 
         private DiscordSocketClient discord = new DiscordSocketClient();
 
-        private void RespondToCommand(string response, SocketMessage message)
+        public static void RespondToCommand(string response, SocketMessage message)
         {
             SendMessage(message.Author.Mention + ", " + response, message.Channel);
+        }
+
+        class CovidCommand
+        {
+            public enum Types
+            {
+                deaths,
+                confirmed,
+                deathPercentage,
+                all,
+            }
+
+            public struct Parameters
+            {
+                public bool chart;
+                public bool info;
+            }
+
+
+            public Types commandType;
+            public string country;
+            public SocketMessage channel;
+            public DateTime date;
+            public Parameters param;
+
+
+            public CovidCommand(Types commandType, string country, DateTime date, SocketMessage channel, Parameters param)
+            {
+                this.commandType = commandType;
+                this.country = country.ToLower();
+                this.channel = channel;
+                this.date = date;
+                this.param = param;
+            }
+
+            private string ParseData(CovidParser.Country.Data data, string country)
+            {
+                string countryName = (char)(country[0]-32) + country.Remove(0, 1);
+
+                return "\n" + countryName + " on " + data.date + ": \n\tDeaths:  \t\t" + data.deaths + "\n\tConfirmed:\t" + data.confirmed + "\n\tRecovered:\t" + data.recovered;
+            }
+
+            public void Execute(List<CovidParser.Country> data)
+            {
+                CovidParser.Country _country = null;
+                CovidParser.Country.Data countryData = new CovidParser.Country.Data();
+                   
+                for (int i = 0; i < data.Count; i++)
+                {
+                    if (data[i].name == country)
+                    {
+                        if (date == DateTime.MinValue)
+                        {
+                            _country = data[i];
+                            countryData = data[i].data[data[i].data.Count - 1];
+                        }
+                        else
+                        {
+                            string toFind = date.Year.ToString() + "-" + date.Month.ToString() + "-" + date.Day.ToString();
+                            foreach (CovidParser.Country.Data country in data[i].data)
+                            {
+                                if (country.date == toFind)
+                                {
+                                    _country = data[i];
+                                    countryData = country;
+                                    break;
+                                }
+                            }
+                        }
+
+                        break;
+                    }
+                }
+
+                if(_country == null)
+                {
+                    RespondToCommand("Country not found", channel);
+                    return;
+                }
+
+                if (param.info)
+                {
+                    RespondToCommand(ParseData(countryData, country), channel);
+                }
+                if(param.chart)
+                {
+                    CreateCovidChart(_country, CovidChartTypes.all);
+
+                    channel.Channel.SendFileAsync("covid.png");
+                }
+            }
+        }
+
+        private DateTime covidLastUpdate = DateTime.MinValue;
+        private string covidDataFilename = "covid.json";
+        private List<CovidCommand> covidChannels = new List<CovidCommand>();
+        private List<CovidParser.Country> covidData;
+        private bool downloadingCovidData = false;
+        private void ParseCovidData()
+        {
+            
+
+            for(int i = 0;i<covidChannels.Count;i++)
+            {
+                //RespondToCommand(covidChannels[i].Execute(covidData), covidChannels[i].channel);
+                covidChannels[i].Execute(covidData);
+            }
+
+            covidChannels.Clear();
+            downloadingCovidData = false;
+        }
+
+        private void ReadCovidData()
+        {
+            string data = File.ReadAllText(covidDataFilename);
+            ParseCovidData();
+        }
+
+        private void CovidDataUpdated(string data)
+        {
+            Debug.Log("Covid data updated");
+            covidLastUpdate = DateTime.Now;
+
+            covidData = CovidParser.Parse(data);
+            ReadCovidData();
+        }
+
+        private void UpdateCovidData()
+        {
+            if (!downloadingCovidData)
+            {
+                Debug.Log("Downloading file...");
+                HTTPDownloader.DownloadFile("https://pomber.github.io/covid19/timeseries.json", CovidDataUpdated, covidDataFilename);
+            }
+        }
+
+        private void RequestCovidData(SocketMessage message, string parameters)
+        {
+            string[] msgParams = parameters.Split(' ');
+            if (msgParams.Length == 0 || msgParams[0].Length == 0)
+            {
+                RespondToCommand("No parameters specified, usage: " + prefix + "!covid <country> [date / last] [-chart / -info]", message);
+                return;
+            }
+
+            bool chart, info;
+            chart = info = false;
+            string country = "";
+            DateTime date = DateTime.MinValue;
+
+            country = msgParams[0];
+
+            DateTime t = DateTime.Now;
+
+            for(int i = 0;i<msgParams.Length;i++)
+            {
+                if(msgParams[i] == "-chart")
+                {
+                    chart = true;
+                }
+                if (msgParams[i] == "-info")
+                {
+                    info = true;
+                }
+            }
+
+            if(chart == false)
+            {
+                info = true;
+            }
+
+            covidChannels.Add(new CovidCommand(CovidCommand.Types.all, country, date, message, new CovidCommand.Parameters() { chart = chart, info = info }));
+            if (t.DayOfWeek != covidLastUpdate.DayOfWeek)
+            {
+                UpdateCovidData();
+            }
+            else
+            {
+                ReadCovidData();
+            }
+            
+        }
+
+        public enum CovidChartTypes
+        {
+            deaths,
+            confirmed,
+            recovered,
+            all
+        }
+
+        public static CovidParser.Country.Data FindMax(CovidParser.Country country, CovidChartTypes type)
+        {
+            int maxPos = -1;
+            long max = -1;
+            for(int i = 0;i<country.data.Count;i++)
+            {
+                long c = 0;
+                switch (type)
+                {
+                    case CovidChartTypes.deaths:
+                        c = country.data[i].deaths;
+                        break;
+                    case CovidChartTypes.confirmed:
+                        c = country.data[i].confirmed;
+                        break;
+                    case CovidChartTypes.recovered:
+                        c = country.data[i].recovered;
+                        break;
+                    case CovidChartTypes.all:
+                        c = country.data[i].confirmed;
+                        break;
+                    default:
+                        break;
+                }
+
+                if(c > max)
+                {
+                    maxPos = i;
+                }
+            }
+
+            return country.data[maxPos];
+        }
+
+        public static void CreateCovidChart(CovidParser.Country country, CovidChartTypes type)
+        {
+
+            int xMin = 0;
+            int xMax = country.data.Count;
+            int yMin = 0;
+            CovidParser.Country.Data c = FindMax(country, type);
+            long yMax = 0;
+
+            string title = "COVID-19 in " + country.name;
+            switch (type)
+            {
+                case CovidChartTypes.deaths:
+                    yMax = c.deaths;
+                    title += " deaths";
+                    break;
+                case CovidChartTypes.confirmed:
+                    yMax = c.confirmed;
+                    title += " confirmed";
+                    break;
+                case CovidChartTypes.recovered:
+                    yMax = c.recovered;
+                    title += " recovered";
+                    break;
+                case CovidChartTypes.all:
+                    yMax = c.confirmed;
+                    break;
+                default:
+                    break;
+            }
+
+
+
+            List<double>[] values = null; //new List<double>();
+            List<double> keys = new List<double>();
+            for (int i = 0; i < country.data.Count; i++)
+            {
+                keys.Add(i);
+                switch (type)
+                {
+                    case CovidChartTypes.deaths:
+                        if(values == null)
+                        {
+                            values = new List<double>[1];
+                            values[0] = new List<double>();
+                        }
+                        values[0].Add(country.data[i].deaths);
+                        
+                        break;
+                    case CovidChartTypes.confirmed:
+                        if (values == null)
+                        {
+                            values = new List<double>[1];
+                            values[0] = new List<double>();
+                        }
+                        values[0].Add(country.data[i].confirmed);
+                       
+                        break;
+                    case CovidChartTypes.recovered:
+                        if (values == null)
+                        {
+                            values = new List<double>[1];
+                            values[0] = new List<double>();
+                        }
+                        values[0].Add(country.data[i].recovered);
+                        
+                        break;
+                    case CovidChartTypes.all:
+                        //Debug.LogError("All is not supported yet");
+                        if (values == null)
+                        {
+                            values = new List<double>[3];
+                            values[0] = new List<double>();
+                            values[1] = new List<double>();
+                            values[2] = new List<double>();
+                        }
+                        values[0].Add(country.data[i].confirmed);
+                        values[1].Add(country.data[i].deaths);
+                        values[2].Add(country.data[i].recovered);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            var pl = new PLStream();
+
+            pl.sdev("pngcairo");
+            pl.sfnam("covid.png");
+
+            pl.init();
+
+
+
+            pl.env(xMin, xMax, yMin, yMax, AxesScale.Independent, AxisBox.BoxTicksLabels);
+
+            pl.lab("Days", "Cases",  title);
+
+
+            
+            for (int i = 0; i < values.Length; i++)
+            {
+                pl.col0(15 - i);
+                pl.line(keys.ToArray(), values[i].ToArray());
+            }
+
+            pl.eop();
+
+            pl.ResetOpts();
+
+            IDisposable disp = (IDisposable)pl;
+            disp.Dispose();
+
+            //pl.gver(out var varText);
+            //Debug.Log("Plplot version: " + varText);
         }
 
         public Task MessageReceived(SocketMessage message)
@@ -200,7 +542,6 @@ namespace DiscordMinikBOT
                     break;
 
                 case "kitek":
-                    //RespondToCommand("it's " + discord.GetUser(544876161331625994).Mention + " :3", message);
                     SendMessage("It's " + discord.GetUser(544876161331625994).Mention + " :3", message.Channel);
                     break;
                 case "misio":
@@ -210,8 +551,15 @@ namespace DiscordMinikBOT
                     SendMessage("It's " + discord.GetUser(308705467209875456).Mention + " :3", message.Channel);
                     break;
                 case "weather":
-                    RespondToCommand("Coming soon :)", message);
+                    RespondToCommand("A weź spierdalaj :)", message);
                     break;
+
+                case "covid":
+                    Debug.Log("Covid");
+                    RequestCovidData(message, rest);
+                    
+                    break;
+
                 default:
                     //SendMessage("<@" + message.Author.Id + ">, command **" + command + "** not found, try **" + prefix + "help**", message.Channel);
                     if (command.Length != 0)
@@ -228,7 +576,7 @@ namespace DiscordMinikBOT
             return Task.CompletedTask;
         }
 
-        public void SendMessage(string message, ISocketMessageChannel channel)
+        public static void SendMessage(string message, ISocketMessageChannel channel)
         {
             channel.SendMessageAsync(message);
         }
@@ -302,7 +650,21 @@ namespace DiscordMinikBOT
 
         private void LoadConfig()
         {
-            
+            if(File.Exists(covidDataFilename))
+            {
+                covidLastUpdate = File.GetLastAccessTime(covidDataFilename);
+
+                DateTime t = DateTime.Now;
+
+                if(covidLastUpdate.Date != t.Date)
+                {
+                    UpdateCovidData();
+                }
+                else
+                {
+                    covidData = CovidParser.Parse(File.ReadAllText(covidDataFilename));
+                }
+            }
 
             if(!File.Exists(configDir))
             {
