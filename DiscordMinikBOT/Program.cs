@@ -338,6 +338,8 @@ namespace DiscordMinikBOT
                     {
                         maxPos = i;
                         maxIndex = j;
+
+                        max = c;
                     }
                 }
             }
