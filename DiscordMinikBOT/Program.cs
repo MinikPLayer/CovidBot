@@ -108,24 +108,36 @@ namespace DiscordMinikBOT
             public string[] countriesToCompare;
             public SocketMessage channel;
             public DateTime date;
+            public DateTime startDate;
             public Parameters param;
 
 
             public CovidCommand(Types commandType, string country, DateTime date, SocketMessage channel, Parameters param, string[] countriesToCompare = null)
+            {
+                FillVariables(commandType, country, date, channel, param, DateTime.MinValue, countriesToCompare);
+            }
+            public CovidCommand(Types commandType, string country, DateTime date, SocketMessage channel, Parameters param, DateTime chartStartDate, string[] countriesToCompare = null)
+            {
+                FillVariables(commandType, country, date, channel, param, chartStartDate, countriesToCompare);
+            }
+
+            void FillVariables(Types commandType, string country, DateTime date, SocketMessage channel, Parameters param, DateTime chartStartDate, string[] countriesToCompare)
             {
                 this.commandType = commandType;
                 this.country = country.ToLower();
                 this.channel = channel;
                 this.date = date;
                 this.param = param;
+                this.startDate = chartStartDate;
 
                 if (countriesToCompare == null) countriesToCompare = new string[0];
                 this.countriesToCompare = new string[countriesToCompare.Length];
-                for(int i = 0;i<countriesToCompare.Length;i++)
+                for (int i = 0; i < countriesToCompare.Length; i++)
                 {
                     this.countriesToCompare[i] = countriesToCompare[i].ToLower();
                 }
             }
+
 
             private string ToStringWithDots(long number)
             {
@@ -271,7 +283,7 @@ namespace DiscordMinikBOT
 
                 if (param.info)
                 {
-                    RespondToCommand(ParseData(countryData, prevCountryData, GetWorldOnDate(world, date), country), channel);
+                    RespondToCommand(ParseData(countryData, prevCountryData, GetWorldOnDate(world, date), country), channel); 
                 }
                 if(param.chart)
                 {
@@ -290,9 +302,21 @@ namespace DiscordMinikBOT
                         countries[i + 1] = cTc[i];
                         
                     }
-                    //countries[1] = data[0]; // world
+                    int start = 0;
+                    int end = 2147483647;
 
-                    CreateCovidChart(countries, CovidChartTypes.all);
+                    if(startDate != DateTime.MinValue)
+                    {
+                        start = (startDate - StrToDate(world.data[0].date)).Days;
+                        Debug.Log("Start: " + start);
+                    }
+                    if(date != DateTime.MinValue) // end date
+                    {
+                        end = (date - StrToDate(world.data[0].date)).Days;
+                        Debug.Log("End: " + end);
+                    }
+
+                    CreateCovidChart(countries, CovidChartTypes.all, start, end);
 
                     channel.Channel.SendFileAsync("covid.png");
                 }
@@ -343,7 +367,7 @@ namespace DiscordMinikBOT
             }
         }
 
-        private DateTime StringToDate(string day, string month, string year)
+        private static DateTime StringToDate(string day, string month, string year)
         {
             try
             {
@@ -360,13 +384,77 @@ namespace DiscordMinikBOT
             
         }
 
+        public static DateTime StrToDate(string str, SocketMessage message = null)
+        {
+            string[] dateParams;
+            if (str.Contains('-'))
+            {
+                dateParams = str.Split('-');
+            }
+            else if (str.Contains('.'))
+            {
+                dateParams = str.Split('.');
+            }
+            else
+            {
+                if (message != null)
+                { 
+                    RespondToCommand("Invalid date format - You have to use ``-`` or ``.`` to seperate date", message);
+                }
+                return DateTime.MaxValue;
+            }
+            if (dateParams.Length != 3)
+            {
+                if (message != null)
+                {
+                    RespondToCommand("Invalid date format - not enough information ( day / month / year )", message);
+                }
+                return DateTime.MaxValue;
+            }
+
+            string day, month, year;
+            if (dateParams[0].Length > 2)
+            {
+                year = dateParams[0];
+                month = dateParams[1];
+                day = dateParams[2];
+            }
+            else if (dateParams[2].Length > 2)
+            {
+                day = dateParams[0];
+                month = dateParams[1];
+                year = dateParams[2];
+            }
+            else
+            {
+                if (message != null)
+                {
+                    RespondToCommand("Invalid date format - no year specified", message);
+                }
+                return DateTime.MaxValue;
+            }
+
+            DateTime date = StringToDate(day, month, year);
+            if (date == DateTime.MaxValue)
+            {
+                if (message != null)
+                {
+                    RespondToCommand("Invalid date format - cannot parse to date", message);
+                }
+                return DateTime.MaxValue;
+            }
+
+            return date;
+        }
+
         private void RequestCovidData(SocketMessage message, string parameters)
         {
             string[] msgParams = parameters.Split(' ');
-            bool chart, info;
-            chart = info = false;
+            bool chart, info, infoSpecified;
+            chart = info = infoSpecified = false;
             string country = "";
             DateTime date = DateTime.MinValue;
+            DateTime startDate = DateTime.MinValue;
 
             int paramsOffset = 0;
             if (msgParams.Length == 0 || msgParams[0].Length == 0)
@@ -420,11 +508,12 @@ namespace DiscordMinikBOT
                 {
                     chart = true;
                 }
-                if (msgParams[i] == "-info")
+                else if (msgParams[i] == "-info")
                 {
                     info = true;
+                    infoSpecified = true;
                 }
-                if(msgParams[i] == "-date")
+                else if(msgParams[i] == "-date" || msgParams[i] == "-endDate")
                 {
                     i++;
                     if(i >= msgParams.Length || msgParams[i].StartsWith('-'))
@@ -433,56 +522,51 @@ namespace DiscordMinikBOT
                         return;
                     }
 
-                    string[] dateParams;
-                    if (msgParams[i].Contains('-'))
-                    {
-                        dateParams = msgParams[i].Split('-');
-                    }
-                    else if (msgParams[i].Contains('.'))
-                    {
-                        dateParams = msgParams[i].Split('.');
-                    }
-                    else
-                    {
-                        RespondToCommand("Invalid date format - You have to use ``-`` or ``.`` to seperate date", message);
-                        return;
-                    }
-
-                    if(dateParams.Length != 3)
-                    {
-                        RespondToCommand("Invalid date format - not enough information ( day / month / year )", message);
-                        return;
-                    }
-
-                    string day, month, year;
-                    if(dateParams[0].Length > 2)
-                    {
-                        year = dateParams[0];
-                        month = dateParams[1];
-                        day = dateParams[2];
-                    }
-                    else if(dateParams[2].Length > 2)
-                    {
-                        day = dateParams[0];
-                        month = dateParams[1];
-                        year = dateParams[2];
-                    }
-                    else
-                    {
-                        RespondToCommand("Invalid date format - no year specified", message);
-                        return;
-                    }
-
-                    date = StringToDate(day, month, year);
-                    if(date == DateTime.MaxValue)
-                    {
-                        RespondToCommand("Invalid date format - cannot parse to date", message);
-                        return;
-                    }
+                    date = StrToDate(msgParams[i]);
+                    if (date == DateTime.MaxValue) return;
                 }
-                if(msgParams[i].StartsWith("+"))
+                else if(msgParams[i] == "-startDate")
                 {
-                    compareCountries.Add(msgParams[i].Remove(0, 1));
+                    i++;
+                    if (i >= msgParams.Length || msgParams[i].StartsWith('-'))
+                    {
+                        RespondToCommand("You have to specify specific date", message);
+                        return;
+                    }
+
+                    startDate = StrToDate(msgParams[i]);
+                    if (startDate == DateTime.MaxValue) return;
+                }
+                else if(msgParams[i].StartsWith("+"))
+                {
+                    //compareCountries.Add(msgParams[i].Remove(0, 1));
+                    string addCountry = msgParams[i].Remove(0, 1);
+                    if(msgParams[i].StartsWith("+\""))
+                    {
+                        addCountry = addCountry.Remove(0, 1) + ' ';
+                        bool found = false;
+                        i++;
+                        for(;i<msgParams.Length;i++)
+                        {
+                            addCountry += msgParams[i] + ' ';
+                            if(msgParams[i].EndsWith('\"'))
+                            {
+                                found = true;
+                                addCountry = addCountry.Substring(0, addCountry.Length - 2);
+                                break;
+                            }
+                        }
+                        if(!found)
+                        {
+                            RespondToCommand("No closing quote mark found", message);
+                            return;
+                        }
+                    }
+
+                    compareCountries.Add(addCountry);
+
+                    info = infoSpecified;
+                    chart = true;
                 }
             }
 
@@ -496,7 +580,7 @@ namespace DiscordMinikBOT
                 info = true;
             }
 
-            covidChannels.Add(new CovidCommand(CovidCommand.Types.all, country, date, message, new CovidCommand.Parameters() { chart = chart, info = info }, compareCountries.ToArray()));
+            covidChannels.Add(new CovidCommand(CovidCommand.Types.all, country, date, message, new CovidCommand.Parameters() { chart = chart, info = info }, startDate, compareCountries.ToArray()));
             if (t.DayOfWeek != covidLastUpdate.DayOfWeek)
             {
                 UpdateCovidData();
@@ -516,7 +600,7 @@ namespace DiscordMinikBOT
             all
         }
 
-        public static CovidParser.Country.Data FindMax(CovidParser.Country[] countries, CovidChartTypes type)
+        public static CovidParser.Country.Data FindMax(CovidParser.Country[] countries, CovidChartTypes type, int startDay = 0, int endDay = 2147483647)
         {
             int maxPos = -1;
             int maxIndex = -1;
@@ -525,7 +609,7 @@ namespace DiscordMinikBOT
             {
                 if (countries[j] == null) continue;
 
-                for (int i = 0; i < countries[j].data.Count; i++)
+                for (int i = startDay; i < countries[j].data.Count && i < endDay; i++)
                 {
                     long c = 0;
                     switch (type)
@@ -567,13 +651,18 @@ namespace DiscordMinikBOT
             CreateCovidChart(countries, type);
         }
 
-        public static void CreateCovidChart(CovidParser.Country[] countries, CovidChartTypes type)
+        public static void CreateCovidChart(CovidParser.Country[] countries, CovidChartTypes type, int startDay = 0, int endDay = 2147483647)
         {
+            if(startDay < 0)
+            {
+                Debug.LogWarning("Start day is lower than 0, fixing");
+                startDay = 0;
+            }
 
-            int xMin = 0;
+            int xMin = startDay;
             int xMax = countries[0].data.Count;
             int yMin = 0;
-            CovidParser.Country.Data c = FindMax(countries, type);
+            CovidParser.Country.Data c = FindMax(countries, type, startDay, endDay);
             long yMax = 0;
 
             string title = "COVID-19 in ";
@@ -608,7 +697,7 @@ namespace DiscordMinikBOT
             List<double> keys = new List<double>();
             for (int j = 0; j < countries.Length; j++)
             {
-                for (int i = 0; i < countries[j].data.Count; i++)
+                for (int i = startDay; i < countries[j].data.Count && i < endDay; i++)
                 {
                     if (j == 0)
                     {
@@ -671,13 +760,24 @@ namespace DiscordMinikBOT
             pl.sfnam("covid.png");
 
             pl.init();
+            pl.col0(15);
 
+            // Set to use 10000 instead of 1 * 10^5
+            pl.syax(10, 10);
 
+            if (endDay < xMax)
+            {
+                xMax = endDay - 1;
+            }
+            
 
             pl.env(xMin, xMax, yMin, yMax, AxesScale.Independent, AxisBox.BoxTicksLabels);
 
+            //pl.setcontlabelformat(10, 10);
             pl.col0(15);
             pl.lab("Days", "Cases",  title);
+
+            
 
 
 
