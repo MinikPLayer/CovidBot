@@ -189,9 +189,17 @@ namespace DiscordMinikBOT
                 {
                     _country = world;
                     countryData = GetWorldOnDate(world, date);
-                    if (world.data.Count > 1)
+                    if (date == DateTime.MinValue)
                     {
-                        prevCountryData = world.data[world.data.Count - 2];
+                        if (world.data.Count > 1)
+                        {
+                            prevCountryData = world.data[world.data.Count - 2];
+                        }
+                    }
+                    else
+                    {
+                        DateTime prevDate = date.AddDays(-1);
+                        prevCountryData = GetWorldOnDate(world, prevDate);
                     }
                 }
                 else
