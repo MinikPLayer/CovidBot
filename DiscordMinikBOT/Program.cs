@@ -150,7 +150,7 @@ namespace DiscordMinikBOT
                 return val;
             }
 
-            private string GenerateSpaces(string thisStr, string[] rest, int additionalSpaces = 0)
+            private string GenerateSpaces(string thisStr, string[] rest)
             {
                 int maxL = thisStr.Length;
                 for(int i = 0;i<rest.Length;i++)
@@ -162,12 +162,12 @@ namespace DiscordMinikBOT
                 }
 
                 string ret = "";
-                for(int i = 0;i<maxL - thisStr.Length + additionalSpaces;i++)
+                for(int i = 0;i<(maxL - thisStr.Length) * 1.3 ;i++)
                 {
                     ret += ' ';
                 }
 
-                Debug.Log(thisStr + " - adding " + (ret.Length - additionalSpaces));
+                Debug.Log(thisStr + " - adding " + ret.Length);
                 return ret;
             }
 
@@ -179,14 +179,29 @@ namespace DiscordMinikBOT
                 string deaths = ToStringWithDots(data.deaths);
                 string recovered = ToStringWithDots(data.recovered);
 
-                string confirmedP = MathF.Round(data.confirmed * 100f / worldData.confirmed, 2).ToString();
+                string confirmedPW = MathF.Round(data.confirmed * 100f / worldData.confirmed, 2).ToString();
+                string deathsPW = MathF.Round(data.deaths * 100f / worldData.deaths, 2).ToString();
+                string recoveredPW = MathF.Round(data.recovered * 100f / worldData.recovered, 2).ToString();
+
+                string confirmedA = ToStringWithDots(data.confirmed - previousData.confirmed);
+                string deathsA = ToStringWithDots(data.deaths - previousData.deaths);
+                string recoveredA = ToStringWithDots(data.recovered - previousData.recovered);
+
                 string deathsP = MathF.Round(data.deaths * 100f / data.confirmed, 2).ToString();
                 string recoveredP = MathF.Round(data.recovered * 100f / data.confirmed, 2).ToString();
 
                 return "\n" + countryName + " on " + data.date +
-                    ": \n\tConfirmed:\t" + confirmed + GenerateSpaces(confirmed, new string[] { deaths, recovered }) + '\t' + confirmedP + "%\t+" + ToStringWithDots(data.confirmed - previousData.confirmed) +
-                    "\n\tDeaths:  \t\t" + deaths + GenerateSpaces(deaths, new string[] { confirmed, recovered }) + '\t' + deathsP + "%\t+" + ToStringWithDots(data.deaths - previousData.deaths) +
-                    "\n\tRecovered:\t" + recovered + GenerateSpaces(recovered, new string[] { deaths, confirmed }) + '\t' + recoveredP + "%\t+" + ToStringWithDots(data.recovered - previousData.recovered);
+                    ":\n\t         \t\t\t\t[Cases]\t\t\t[World %]\t\t\t[Increase]\t\t\t[Cases %]" +
+                    "\n\tConfirmed:\t" + confirmed + "\t\t\t\t" + GenerateSpaces(confirmed, new string[] { deaths, recovered })  + confirmedPW + "%" + GenerateSpaces(confirmedPW, new string[] { deathsPW, recoveredPW }) + "\t\t\t\t+" + confirmedA +
+                    "\n\tDeaths:  \t\t" + deaths + "\t\t\t\t" + GenerateSpaces(deaths, new string[] { confirmed, recovered }) + deathsPW + "%" + GenerateSpaces(deathsPW, new string[] { confirmedPW, recoveredPW }) + "\t\t\t\t+" + deathsA + GenerateSpaces(deathsA, new string[] { confirmedA, recoveredA }) + "\t\t\t\t" + deathsP + "%" +
+                    "\n\tRecovered:\t" + recovered + "\t\t\t\t" + GenerateSpaces(recovered, new string[] { deaths, confirmed }) + recoveredPW + "%" + GenerateSpaces(recoveredPW, new string[] { confirmedPW, deathsPW }) + "\t\t\t\t+" + recoveredA + GenerateSpaces(recoveredA, new string[] { confirmedA, deathsA }) + "\t\t\t\t" + recoveredP + "%";
+            
+
+                /*return "\n" + countryName + " on " + data.date +
+                    ":\n\t         \t\t\t\t[Cases] [World %] [Increase] [cases %]" +
+                    "\n\tConfirmed:\t" + confirmed + "\t\t\t\t" + confirmedPW + "%\t\t\t\t+" + confirmedA +
+                    "\n\tDeaths:  \t\t" + deaths + "\t\t\t\t" + deathsPW + "%\t\t\t\t+" + deathsA + "\t\t\t\t" + deathsP + "%" +
+                    "\n\tRecovered:\t" + recovered + "\t\t\t\t" + recoveredPW + "%\t\t\t\t+" + recoveredA + "\t\t\t\t" + recoveredP + "%";*/
             }
 
             public void Execute(List<CovidParser.Country> data, CovidParser.Country world)
