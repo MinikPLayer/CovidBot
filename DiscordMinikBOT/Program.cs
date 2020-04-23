@@ -54,6 +54,38 @@ namespace DiscordMinikBOT
             SendMessage(message.Author.Mention + ", " + response, message.Channel);
         }
 
+        public CovidParser.Country world
+        {
+            get
+            {
+                return CovidParser.world;
+            }
+        }
+
+        public static CovidParser.Country.Data GetWorldOnDate(CovidParser.Country world, DateTime date)
+        {
+            if(date == DateTime.MinValue)
+            {
+                return world.data[world.data.Count - 1];
+            }
+
+            string dt = DateToStr(date);
+            for(int i = 0;i<world.data.Count;i++)
+            {
+                if(world.data[i].date == dt)
+                {
+                    return world.data[i];
+                }
+            }
+            Debug.LogError("Cannot find world data on " + dt);
+            return new CovidParser.Country.Data();
+        }
+
+        public static string DateToStr(DateTime date)
+        {
+            return date.Year.ToString() + "-" + date.Month.ToString() + "-" + date.Day.ToString(); ;
+        }
+
         class CovidCommand
         {
             public enum Types
@@ -95,52 +127,89 @@ namespace DiscordMinikBOT
                 }
             }
 
-            private string ParseData(CovidParser.Country.Data data, string country)
+            private string ToStringWithDots(long number)
+            {
+                string val = number.ToString();
+                for(int i = val.Length - 3;i>0;i-=3)
+                {
+                    val = val.Insert(i, ".");
+                }
+
+                return val;
+            }
+
+            private string GenerateSpaces(string thisStr, string[] rest, int additionalSpaces = 0)
+            {
+                int maxL = thisStr.Length;
+                for(int i = 0;i<rest.Length;i++)
+                {
+                    if(rest[i].Length > maxL)
+                    {
+                        maxL = rest[i].Length;
+                    }
+                }
+
+                string ret = "";
+                for(int i = 0;i<maxL - thisStr.Length + additionalSpaces;i++)
+                {
+                    ret += ' ';
+                }
+
+                Debug.Log(thisStr + " - adding " + (ret.Length - additionalSpaces));
+                return ret;
+            }
+
+            private string ParseData(CovidParser.Country.Data data, CovidParser.Country.Data previousData, CovidParser.Country.Data worldData, string country)
             {
                 string countryName = (char)(country[0]-32) + country.Remove(0, 1);
 
-                return "\n" + countryName + " on " + data.date + ": \n\tDeaths:  \t\t" + data.deaths + "\n\tConfirmed:\t" + data.confirmed + "\n\tRecovered:\t" + data.recovered;
+                string confirmed = ToStringWithDots(data.confirmed);
+                string deaths = ToStringWithDots(data.deaths);
+                string recovered = ToStringWithDots(data.recovered);
+
+                string confirmedP = MathF.Round(data.confirmed * 100f / worldData.confirmed, 2).ToString();
+                string deathsP = MathF.Round(data.deaths * 100f / data.confirmed, 2).ToString();
+                string recoveredP = MathF.Round(data.recovered * 100f / data.confirmed, 2).ToString();
+
+                return "\n" + countryName + " on " + data.date +
+                    ": \n\tConfirmed:\t" + confirmed + GenerateSpaces(confirmed, new string[] { deaths, recovered }) + '\t' + confirmedP + "%\t+" + ToStringWithDots(data.confirmed - previousData.confirmed) +
+                    "\n\tDeaths:  \t\t" + deaths + GenerateSpaces(deaths, new string[] { confirmed, recovered }) + '\t' + deathsP + "%\t+" + ToStringWithDots(data.deaths - previousData.deaths) +
+                    "\n\tRecovered:\t" + recovered + GenerateSpaces(recovered, new string[] { deaths, confirmed }) + '\t' + recoveredP + "%\t+" + ToStringWithDots(data.recovered - previousData.recovered);
             }
 
-            public void Execute(List<CovidParser.Country> data)
+            public void Execute(List<CovidParser.Country> data, CovidParser.Country world)
             {
                 CovidParser.Country _country = null;
                 CovidParser.Country.Data countryData = new CovidParser.Country.Data();
+                CovidParser.Country.Data prevCountryData = new CovidParser.Country.Data();
 
                 CovidParser.Country[] cTc = new CovidParser.Country[countriesToCompare.Length];
 
-                for (int i = 0; i < data.Count; i++)
+                if (country == "world")
                 {
-                    if (data[i].name == country)
+                    _country = world;
+                    countryData = GetWorldOnDate(world, date);
+                    if (world.data.Count > 1)
                     {
-                        if (date == DateTime.MinValue)
-                        {
-                            _country = data[i];
-                            countryData = data[i].data[data[i].data.Count - 1];
-                        }
-                        else
-                        {
-                            string toFind = date.Year.ToString() + "-" + date.Month.ToString() + "-" + date.Day.ToString();
-                            foreach (CovidParser.Country.Data country in data[i].data)
-                            {
-                                if (country.date == toFind)
-                                {
-                                    _country = data[i];
-                                    countryData = country;
-                                    break;
-                                }
-                            }
-                        }
-
-                        //break;
+                        prevCountryData = world.data[world.data.Count - 2];
                     }
-                    for(int j = 0;j<countriesToCompare.Length;j++)
+                }
+                else
+                {
+
+                    for (int i = 0; i < data.Count; i++)
                     {
-                        if (data[i].name == countriesToCompare[j])
+                        if (data[i].name == country)
                         {
                             if (date == DateTime.MinValue)
                             {
-                                cTc[j] = data[i];
+                                _country = data[i];
+                                countryData = data[i].data[data[i].data.Count - 1];
+
+                                if (data[i].data.Count > 1)
+                                {
+                                    prevCountryData = data[i].data[data[i].data.Count - 2];
+                                }
                             }
                             else
                             {
@@ -149,9 +218,36 @@ namespace DiscordMinikBOT
                                 {
                                     if (country.date == toFind)
                                     {
-                                        cTc[j] = data[i];
-
+                                        _country = data[i];
+                                        countryData = country;
                                         break;
+                                    }
+
+                                    prevCountryData = country;
+                                }
+                            }
+
+                            //break;
+                        }
+                        for (int j = 0; j < countriesToCompare.Length; j++)
+                        {
+                            if (data[i].name == countriesToCompare[j])
+                            {
+                                if (date == DateTime.MinValue)
+                                {
+                                    cTc[j] = data[i];
+                                }
+                                else
+                                {
+                                    string toFind = DateToStr(date);
+                                    foreach (CovidParser.Country.Data country in data[i].data)
+                                    {
+                                        if (country.date == toFind)
+                                        {
+                                            cTc[j] = data[i];
+
+                                            break;
+                                        }
                                     }
                                 }
                             }
@@ -161,13 +257,13 @@ namespace DiscordMinikBOT
 
                 if(_country == null)
                 {
-                    RespondToCommand("Country not found", channel);
+                    RespondToCommand("Country ``" + country + "`` not found", channel);
                     return;
                 }
 
                 if (param.info)
                 {
-                    RespondToCommand(ParseData(countryData, country), channel);
+                    RespondToCommand(ParseData(countryData, prevCountryData, GetWorldOnDate(world, date), country), channel);
                 }
                 if(param.chart)
                 {
@@ -207,7 +303,7 @@ namespace DiscordMinikBOT
             for(int i = 0;i<covidChannels.Count;i++)
             {
                 //RespondToCommand(covidChannels[i].Execute(covidData), covidChannels[i].channel);
-                covidChannels[i].Execute(covidData);
+                covidChannels[i].Execute(covidData, world);
             }
 
             covidChannels.Clear();
@@ -222,10 +318,11 @@ namespace DiscordMinikBOT
 
         private void CovidDataUpdated(string data)
         {
-            Debug.Log("Covid data updated");
+
             covidLastUpdate = DateTime.Now;
 
             covidData = CovidParser.Parse(data);
+            Debug.Log("Covid data updated");
             ReadCovidData();
         }
 
@@ -238,27 +335,78 @@ namespace DiscordMinikBOT
             }
         }
 
+        private DateTime StringToDate(string day, string month, string year)
+        {
+            try
+            {
+                DateTime t = new DateTime(int.Parse(year), int.Parse(month), int.Parse(day));
+
+                return t;
+            }
+            catch(Exception e)
+            {
+                Debug.LogError("Invalid date format");
+                return DateTime.MaxValue;
+            }
+
+            
+        }
+
         private void RequestCovidData(SocketMessage message, string parameters)
         {
             string[] msgParams = parameters.Split(' ');
-            if (msgParams.Length == 0 || msgParams[0].Length == 0)
-            {
-                RespondToCommand("No parameters specified, usage: " + prefix + "!covid <country> [date / last] [-chart / -info]", message);
-                return;
-            }
-
             bool chart, info;
             chart = info = false;
             string country = "";
             DateTime date = DateTime.MinValue;
 
-            country = msgParams[0];
+            int paramsOffset = 0;
+            if (msgParams.Length == 0 || msgParams[0].Length == 0)
+            {
+                //RespondToCommand("No parameters specified, usage: " + prefix + "!covid <country> [date / last] [-chart / -info]", message);
+                //return;
+                country = "world";
+            }
+            else
+            {
+                country = msgParams[0];
+                if(msgParams[0].StartsWith('\"'))
+                {
+                    country = country.Remove(0, 1) + ' ';
+
+                    bool found = false;
+                    for(int i = 1;i<msgParams.Length;i++)
+                    {
+                        country += msgParams[i] + ' ';
+
+                        if(msgParams[i].EndsWith('\"'))
+                        {
+                            found = true;
+                            paramsOffset = i + 1;
+
+                            country = country.Substring(0, country.Length - 2); // Without " and ' '
+                            Debug.Log("Country: \"" + country + "\"");
+                            break;
+                        }
+
+                    }
+
+                    if(!found)
+                    {
+                        RespondToCommand("Cannot find closing quotemark", message);
+                        return;
+                    }
+                }
+            }
+            
+
+            
 
             DateTime t = DateTime.Now;
 
             List<string> compareCountries = new List<string>();
 
-            for(int i = 0;i<msgParams.Length;i++)
+            for(int i = paramsOffset;i<msgParams.Length;i++)
             {
                 if(msgParams[i] == "-chart")
                 {
@@ -267,6 +415,62 @@ namespace DiscordMinikBOT
                 if (msgParams[i] == "-info")
                 {
                     info = true;
+                }
+                if(msgParams[i] == "-date")
+                {
+                    i++;
+                    if(i >= msgParams.Length || msgParams[i].StartsWith('-'))
+                    {
+                        RespondToCommand("You have to specify specific date", message);
+                        return;
+                    }
+
+                    string[] dateParams;
+                    if (msgParams[i].Contains('-'))
+                    {
+                        dateParams = msgParams[i].Split('-');
+                    }
+                    else if (msgParams[i].Contains('.'))
+                    {
+                        dateParams = msgParams[i].Split('.');
+                    }
+                    else
+                    {
+                        RespondToCommand("Invalid date format - You have to use ``-`` or ``.`` to seperate date", message);
+                        return;
+                    }
+
+                    if(dateParams.Length != 3)
+                    {
+                        RespondToCommand("Invalid date format - not enough information ( day / month / year )", message);
+                        return;
+                    }
+
+                    string day, month, year;
+                    if(dateParams[0].Length > 2)
+                    {
+                        year = dateParams[0];
+                        month = dateParams[1];
+                        day = dateParams[2];
+                    }
+                    else if(dateParams[2].Length > 2)
+                    {
+                        day = dateParams[0];
+                        month = dateParams[1];
+                        year = dateParams[2];
+                    }
+                    else
+                    {
+                        RespondToCommand("Invalid date format - no year specified", message);
+                        return;
+                    }
+
+                    date = StringToDate(day, month, year);
+                    if(date == DateTime.MaxValue)
+                    {
+                        RespondToCommand("Invalid date format - cannot parse to date", message);
+                        return;
+                    }
                 }
                 if(msgParams[i].StartsWith("+"))
                 {

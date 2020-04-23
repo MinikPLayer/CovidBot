@@ -23,13 +23,15 @@ namespace DiscordMinikBOT
             
         }
 
+        public static Country world;
+
         public static List<Country> Parse(string data)
         {
             List<Country> countries = new List<Country>();
 
-            Country world = new Country();
+            world = new Country();
             world.name = "world";
-            countries.Add(world);
+            //countries.Add(world);
 
             DataSet set = JsonConvert.DeserializeObject<DataSet>(data);
             for(int i = 0;i<set.Tables.Count;i++)
