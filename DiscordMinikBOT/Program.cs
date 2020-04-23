@@ -908,18 +908,9 @@ namespace DiscordMinikBOT
                     RespondToCommand(response, message);
                     break;
 
-                case "kitek":
-                    SendMessage("It's " + discord.GetUser(544876161331625994).Mention + " :3", message.Channel);
-                    break;
-                case "misio":
-                case "misiu":
-                case "mis":
-                case "miś":
-                    SendMessage("It's " + discord.GetUser(308705467209875456).Mention + " :3", message.Channel);
-                    break;
-                case "weather":
-                    RespondToCommand("A weź spierdalaj :)", message);
-                    break;
+                /*case "weather":
+                    RespondToCommand("To be done :)", message);
+                    break;*/
 
                 case "covid":
                     Debug.Log("Covid");
